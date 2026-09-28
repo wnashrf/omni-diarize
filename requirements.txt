@@ -1,0 +1,13 @@
+# --- UI (proof-of-concept viewer) ---
+streamlit>=1.40
+pandas>=2.2
+
+# --- Helper utilities ---
+python-dotenv>=1.0     # load HF_TOKEN etc. from .env
+numpy>=1.26            # embedding maths (cosine similarity)
+soundfile>=0.12        # audio I/O / duration probing
+
+# --- ML pipeline (uncomment when running inference locally) ---
+# pyannote.audio>=3.1   # neural speaker diarization (requires HF token + model licence acceptance)
+# faster-whisper>=1.0   # large-v3 Malay-English ASR
+# torch>=2.2
