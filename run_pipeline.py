@@ -1,9 +1,14 @@
-"""omni-diarize — end-to-end pipeline for a Dewan Rakyat sitting on YouTube.
+"""omni-diarize — end-to-end pipeline for a Dewan Rakyat sitting.
 
-    python run_pipeline.py --url "https://www.youtube.com/watch?v=XXXX" [--max-duration 120] [--output-dir data]
+Usage:
+    # 1. Direct from local audio (Bypasses YouTube datacenter blocks entirely):
+    python run_pipeline.py --audio data/parlimen_full.wav
 
-Steps: yt-dlp (16 kHz mono WAV) -> pyannote 3.1 diarization + turn stitching
--> faster-whisper large-v3 per turn -> <output-dir>/<clean_title>_<video_id>_transcript.json
+    # 2. Or from YouTube URL directly:
+    python run_pipeline.py --url "https://www.youtube.com/watch?v=XXXX" [--max-duration 120]
+
+Steps: (yt-dlp if URL) -> pyannote 3.1 diarization + turn stitching
+-> faster-whisper large-v3 per turn -> <output-dir>/<stem>_transcript.json
 
 The JSON matches the schema read by app.py (`turns[]` of speaker/start/end/timestamp/text)
 and sits next to its WAV so the viewer can find the audio. Requires HF_TOKEN (env or .env).
@@ -208,11 +213,15 @@ def transcribe_turns(wav: Path, turns: list[dict], cuda: bool, out_path: Path, p
 # ----------------------------------------------------------------------- main
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Download, diarize and transcribe a Dewan Rakyat sitting.")
-    p.add_argument("--url", required=True, help="YouTube URL of the sitting")
+    p.add_argument("--url", default=None, help="YouTube URL of the sitting")
+    p.add_argument("--audio", default=None, help="Path to an existing local WAV audio file")
     p.add_argument("--max-duration", type=int, default=None, metavar="MINUTES",
-                   help="Only process the first N minutes (default: full stream)")
+                   help="Only process the first N minutes (when using --url)")
     p.add_argument("--output-dir", default="data", help="Folder for the WAV and transcript JSON")
-    return p.parse_args()
+    args = p.parse_args()
+    if not args.url and not args.audio:
+        p.error("You must provide either --url or --audio")
+    return args
 
 
 def main() -> None:
@@ -226,11 +235,22 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    video_id, title = fetch_metadata(args.url)
-    stem = f"{sanitize(title)}_{video_id}"
-    log(f"Video: {title} [{video_id}]")
+    if args.audio:
+        wav = Path(args.audio)
+        if not wav.exists():
+            sys.exit(f"Audio file not found: {wav}")
+        stem = wav.stem
+        title = stem.replace("_", " ").title()
+        video_id = stem
+        source_url = "local"
+        log(f"Using local audio file: {wav}")
+    else:
+        video_id, title = fetch_metadata(args.url)
+        stem = f"{sanitize(title)}_{video_id}"
+        source_url = args.url
+        log(f"Video: {title} [{video_id}]")
+        wav = download_audio(args.url, stem, output_dir, args.max_duration)
 
-    wav = download_audio(args.url, stem, output_dir, args.max_duration)
     out_path = output_dir / f"{stem}_transcript.json"
 
     import torch
@@ -245,7 +265,7 @@ def main() -> None:
     payload = {
         "title": title,
         "video_id": video_id,
-        "source_url": args.url,
+        "source_url": source_url,
         "audio_file": wav.name,
         "status": "in_progress",
         "speakers_detected": [],
