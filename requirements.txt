@@ -11,3 +11,5 @@ soundfile>=0.12        # audio I/O / duration probing
 # pyannote.audio>=3.1   # neural speaker diarization (requires HF token + model licence acceptance)
 # faster-whisper>=1.0   # large-v3 Malay-English ASR
 # torch>=2.2
+# torchaudio>=2.2       # per-turn audio slicing in run_pipeline.py
+# yt-dlp                # YouTube audio download (also needs ffmpeg on PATH)
