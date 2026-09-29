@@ -187,7 +187,12 @@ st.markdown(CSS, unsafe_allow_html=True)
 
 # ----------------- SIDEBAR CONTROLS -----------------
 # 1. Dynamic Session Selector across data/ and root
-available_json = sorted(list(DATA_DIR.glob("*.json")) + list(Path(__file__).parent.glob("*.json")))
+seen_files = {}
+for p in list(DATA_DIR.glob("*.json")) + list(Path(__file__).parent.glob("*.json")):
+    if p.is_file() and p.name not in seen_files:
+        seen_files[p.name] = p
+
+available_json = sorted(seen_files.values(), key=lambda x: x.name)
 json_names = [p.name for p in available_json]
 
 with st.sidebar:
@@ -258,10 +263,14 @@ with st.sidebar:
 st.title("🏛️ omni-diarize")
 st.caption("Speaker diarization & Malay-English transcription for the Dewan Rakyat")
 
-# Dynamic audio path finder
-audio_target = DATA_DIR / f"{active_transcript_path.stem.replace('_transcript', '')}.wav"
-fallback_audio = DATA_DIR / "parlimen_test.wav"
-active_audio = audio_target if audio_target.exists() else (fallback_audio if fallback_audio.exists() else None)
+# Look inside file_meta or raw json first
+json_audio_name = file_meta.get("audio_file") or file_meta.get("Audio_File")
+if json_audio_name and (DATA_DIR / json_audio_name).exists():
+    active_audio = DATA_DIR / json_audio_name
+else:
+    audio_target = DATA_DIR / f"{active_transcript_path.stem.replace('_transcript', '')}.wav"
+    fallback_audio = DATA_DIR / "parlimen_test.wav"
+    active_audio = audio_target if audio_target.exists() else (fallback_audio if fallback_audio.exists() else None)
 
 if active_audio:
     st.audio(str(active_audio), format="audio/wav")

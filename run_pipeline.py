@@ -84,7 +84,10 @@ def download_audio(url: str, stem: str, output_dir: Path, max_minutes: int | Non
         "-o", str(output_dir / f"{stem}.%(ext)s"),
     ]
     if max_minutes:
-        cmd += ["--download-sections", f"*0-{max_minutes * 60}"]
+        end_h, end_rem = divmod(max_minutes * 60, 3600)
+        end_m, end_s = divmod(end_rem, 60)
+        section_str = f"*00:00:00-{int(end_h):02d}:{int(end_m):02d}:{int(end_s):02d}"
+        cmd += ["--download-sections", section_str]
     log(f"Downloading audio{f' (first {max_minutes} min)' if max_minutes else ''} -> {wav}")
     subprocess.run([*cmd, url], check=True)
     if not wav.exists():
