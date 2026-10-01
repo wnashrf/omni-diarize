@@ -23,6 +23,24 @@ MODELS = {
     "ASR": "faster-whisper large-v3",
     "Speaker ID": "Cosine similarity · voice embeddings",
 }
+# Whisper vocabulary prompt: comma-separated terms curated from Dewan Rakyat Hansard records,
+# most important first. run_pipeline.py reads data/parliament_vocab.txt instead when it exists
+# (tune the vocabulary there without code changes) and trims terms from the END to fit
+# Whisper's 223-token prompt budget.
+DEFAULT_PARLIAMENT_PROMPT = (
+    # Procedural & greetings
+    "Dewan Rakyat, Yang di-Pertua, Tuan Yang di-Pertua, Yang Berhormat, Tuan Pengerusi, "
+    "Perdana Menteri, Ketua Pembangkang, Rang Undang-Undang, Peraturan Mesyuarat, Titah Diraja, "
+    "Pertanyaan-Pertanyaan Bagi Jawab Lisan, Soalan Tambahan, Usul, Belanjawan, Peruntukan, Hansard, "
+    "Jawatankuasa Seluruh Majlis, Bacaan Kali Yang Kedua, Bacaan Kali Yang Ketiga, "
+    "Bismillahirrahmanirrahim, Assalamualaikum warahmatullahi wabarakatuh, Insya-Allah, "
+    # Honorifics & titles
+    "Dato' Seri, Datuk Seri, Tan Sri, Dato' Sri, "
+    # Hansard acronyms
+    "TVET, STEM, SOSMA, PADU, BUDI, ASEAN, NADMA, COVID, MOF, PAC, SST, SOP, KPI, ECRL, MAHB, PAAB, OKU, REE, "
+    # Recently misheard place and agency names
+    "Kulim-Bandar Baharu, Jerlun, Geting, SkillsLab, MyMahir"
+)
 CHAMBER = {
     "Chamber": "Dewan Rakyat",
     "Parliament": "Parlimen Malaysia",

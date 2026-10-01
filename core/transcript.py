@@ -35,7 +35,7 @@ def _first(d: dict, *keys: str, default: Any = None) -> Any:
     return default
 
 
-def _parse_clock(value: str) -> float:
+def parse_clock(value: str) -> float:
     """'MM:SS.ss' or 'HH:MM:SS.ss' -> seconds."""
     secs = 0.0
     for part in value.strip().split(":"):
@@ -49,7 +49,7 @@ def _times(seg: dict) -> tuple[float, float]:
     ts = seg.get("timestamp")
     if (start is None or end is None) and isinstance(ts, str) and "-" in ts:
         try:
-            ts_start, ts_end = (_parse_clock(p) for p in ts.split("-", 1))
+            ts_start, ts_end = (parse_clock(p) for p in ts.split("-", 1))
             start = ts_start if start is None else start
             end = ts_end if end is None else end
         except ValueError:
@@ -158,10 +158,6 @@ def highlight(text: str, query: str) -> str:
     return "".join(out)
 
 
-def pill(text: str, kind: str = "info") -> str:
-    return f'<span class="pill pill-{kind}">{html.escape(text)}</span>'
-
-
 def meta_row(key: str, value: str) -> str:
     return (f'<div class="meta-row"><span>{html.escape(key)}</span>'
             f'<span>{html.escape(value)}</span></div>')
@@ -175,10 +171,9 @@ def render_card(seg: dict, query: str, active: bool = False) -> str:
     return f"""
 <div class="card{' card-active' if active else ''}" style="--accent:{colour}">
   <div class="card-head">
-    <span class="card-icon">{icon}</span>
-    <span class="card-speaker">{html.escape(seg["speaker"])}</span>
+    <span class="card-speaker">{icon} {html.escape(seg["speaker"])}</span>
     <span class="card-role">{role}{conf}</span>
-    <span class="card-ts">{fmt_ts(seg["start"])} → {fmt_ts(seg["end"])}</span>
+    <span class="card-ts">{fmt_ts(seg["start"])} – {fmt_ts(seg["end"])}</span>
   </div>
   <div class="card-text">{highlight(seg["text"], query)}</div>
 </div>"""
@@ -186,25 +181,65 @@ def render_card(seg: dict, query: str, active: bool = False) -> str:
 
 CSS = """
 <style>
-.pill {display:inline-block;padding:2px 10px;margin:2px 4px 2px 0;border-radius:999px;
-       font-size:0.78rem;font-weight:600;border:1px solid transparent;white-space:nowrap}
-.pill-ok   {background:rgba(40,167,69,.15);color:#28a745;border-color:rgba(40,167,69,.4)}
-.pill-warn {background:rgba(255,193,7,.15);color:#c69500;border-color:rgba(255,193,7,.5)}
-.pill-err  {background:rgba(220,53,69,.12);color:#dc3545;border-color:rgba(220,53,69,.4)}
-.pill-info {background:rgba(31,119,180,.12);color:#1f77b4;border-color:rgba(31,119,180,.4)}
-.meta-row {display:flex;justify-content:space-between;gap:8px;font-size:0.85rem;padding:2px 0}
-.meta-row span:first-child {opacity:.65}
-.meta-row span:last-child {text-align:right;overflow-wrap:anywhere}
-.card {border-left:4px solid var(--accent);border-radius:10px;padding:10px 14px;margin:0 0 4px 0;
-       background:rgba(127,127,127,.07)}
-.card-active {background:rgba(255,193,7,.14);box-shadow:0 0 0 1px rgba(255,193,7,.5)}
-.card-head {display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap}
-.card-icon {font-size:1.35rem;line-height:1}
-.card-speaker {font-weight:700;color:var(--accent)}
-.card-role {font-size:.72rem;opacity:.7}
-.card-ts {margin-left:auto;font-family:ui-monospace,monospace;font-size:.78rem;opacity:.7}
-.card-text {line-height:1.55}
+/* Keep line length readable on wide screens; tighten the gap under the top nav. */
+[data-testid="stMainBlockContainer"] {max-width:1280px;padding-top:5rem;padding-bottom:4rem}
+h1 {padding-top:0}
+
+/* Top navigation: its own darker bar, centred, larger links. */
+[data-testid="stHeader"] {background:#1c1f24;border-bottom:1px solid #3e434c;min-height:4rem}
+[data-testid="stHeader"] .rc-overflow {justify-content:center;gap:.5rem}
+[data-testid="stTopNavLink"] {font-size:1.08rem;padding:.45rem 1.1rem;gap:.55rem}
+[data-testid="stTopNavLink"] [data-testid="stIconMaterial"] {font-size:1.4rem}
+
+.meta-row {display:flex;justify-content:space-between;gap:12px;font-size:0.88rem;padding:6px 0;
+           border-bottom:1px solid rgba(127,127,127,.15)}
+.meta-row:last-child {border-bottom:none}
+.meta-row span:first-child {opacity:.6}
+.meta-row span:last-child {text-align:right;overflow-wrap:anywhere;font-weight:500}
+
+.card {border-left:3px solid var(--accent);border-radius:8px;padding:10px 14px;margin:0 0 2px 0;
+       background:rgba(127,127,127,.06);transition:background .15s}
+.card:hover {background:rgba(127,127,127,.11)}
+.card-active {background:rgba(255,193,7,.10);box-shadow:inset 0 0 0 1px rgba(255,193,7,.40)}
+.card-head {display:flex;align-items:baseline;gap:8px;margin-bottom:4px;flex-wrap:wrap}
+.card-speaker {font-weight:650;color:color-mix(in srgb,var(--accent) 65%,#fff)}
+.card-role {font-size:.7rem;padding:1px 8px;border-radius:999px;background:rgba(127,127,127,.14);opacity:.85}
+.card-ts {margin-left:auto;font-family:ui-monospace,monospace;font-size:.75rem;opacity:.6}
+.card-text {line-height:1.6}
 .card-text mark {background:#ffe066;color:#000;padding:0 2px;border-radius:3px}
+
+/* Run monitor: three-stage stepper */
+.stepper {display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:4px 0 12px}
+@media (max-width:720px) {.stepper {grid-template-columns:1fr}}
+.step {display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:10px;
+       background:rgba(127,127,127,.07);border:1px solid rgba(127,127,127,.18)}
+.step-dot {flex:none;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;
+           justify-content:center;font-weight:700;font-size:.9rem;background:rgba(127,127,127,.2)}
+.step-title {font-weight:650;line-height:1.3}
+.step-sub {font-size:.75rem;opacity:.55;margin-top:1px}
+.step-note {font-size:.82rem;margin-top:6px;opacity:.85}
+.step-pending {opacity:.5}
+.step-done .step-dot {background:rgba(46,160,67,.22);color:#56d364}
+.step-active {border-color:rgba(76,126,232,.6);background:rgba(76,126,232,.09)}
+.step-active .step-dot {background:#4c7ee8;color:#fff;animation:pulse 1.6s ease-in-out infinite}
+.step-failed {border-color:rgba(248,81,73,.55)}
+.step-failed .step-dot {background:rgba(248,81,73,.22);color:#ff7b72}
+.step-stopped .step-dot {background:rgba(210,153,34,.22);color:#e3b341}
+@keyframes pulse {0%,100% {box-shadow:0 0 0 0 rgba(76,126,232,.55)} 50% {box-shadow:0 0 0 7px rgba(76,126,232,0)}}
+
+/* Run monitor: live dialogue feed */
+.bubble {display:flex;gap:12px;align-items:flex-start;margin:0 0 10px}
+.bubble-avatar {flex:none;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
+                justify-content:center;font-size:.75rem;font-weight:700;color:#111;background:var(--accent)}
+.bubble-body {flex:1;min-width:0;padding:10px 14px;border-radius:4px 14px 14px 14px;
+              background:rgba(127,127,127,.09);border:1px solid rgba(127,127,127,.15)}
+.bubble-latest .bubble-body {border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+.bubble-old {opacity:.72}
+.bubble-head {display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-bottom:3px}
+.bubble-speaker {font-weight:650;color:var(--accent);font-size:.88rem}
+.bubble-ts {font-family:ui-monospace,monospace;font-size:.72rem;padding:1px 7px;border-radius:999px;
+            background:rgba(127,127,127,.16);opacity:.85}
+.bubble-text {line-height:1.6}
 </style>
 """
 

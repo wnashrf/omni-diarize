@@ -40,11 +40,39 @@ SAMPLE_RATE = 16000
 MERGE_GAP_S = 1.5       # stitch same-speaker segments separated by <= this gap
 MIN_TURN_S = 0.3        # turns shorter than this are too short to transcribe
 SAVE_EVERY = 10         # checkpoint the JSON every N transcribed turns
-INITIAL_PROMPT = (
-    "Dewan Rakyat, Yang di-Pertua, Perdana Menteri, Yang Berhormat, Ahli Parlimen, "
-    "Rang Undang-Undang, Belanjawan, Peruntukan, Hansard."
-)
+try:
+    from core.config import DEFAULT_PARLIAMENT_PROMPT
+except ImportError:  # run outside the repo: fall back to a minimal built-in vocabulary
+    DEFAULT_PARLIAMENT_PROMPT = (
+        "Dewan Rakyat, Yang di-Pertua, Perdana Menteri, Yang Berhormat, Ahli Parlimen, "
+        "Rang Undang-Undang, Belanjawan, Peruntukan, Hansard"
+    )
+VOCAB_FILE = Path(__file__).resolve().parent / "data" / "parliament_vocab.txt"
+# faster-whisper keeps only the LAST max_length // 2 - 1 = 223 prompt tokens, silently dropping
+# the start of a longer prompt; fit_prompt() trims from the end instead, keeping the top terms.
+PROMPT_TOKEN_BUDGET = 223
+
+
+def load_vocab_prompt() -> str:
+    """Comma-separated vocabulary from data/parliament_vocab.txt, else DEFAULT_PARLIAMENT_PROMPT."""
+    if VOCAB_FILE.is_file():
+        text = " ".join(VOCAB_FILE.read_text(encoding="utf-8").split())
+        if text:
+            return text
+    return DEFAULT_PARLIAMENT_PROMPT
+
+
+def vocab_terms(prompt: str) -> list[str]:
+    return [t.strip() for t in prompt.rstrip(". ").split(",") if t.strip()]
+
+
+INITIAL_PROMPT = load_vocab_prompt()
 OUTPUT_MARKER = "OUTPUT_JSON="  # final stdout line, parsed by the Streamlit runner
+# yt-dlp download attempts, in order: (name for the log, extra yt-dlp args)
+YTDLP_CLIENTS = [
+    ("android", ["--extractor-args", "youtube:player_client=android"]),
+    ("default", []),
+]
 
 
 class PipelineError(RuntimeError):
@@ -116,7 +144,9 @@ def download_audio(url: str, stem: str, output_dir: Path, max_minutes: int | Non
 
     require_ffmpeg()
     cmd = [
-        *ytdlp_cmd(), "--no-playlist", "--newline", "-f", "bestaudio/best",
+        # "ba/b": take the best audio-only stream, else the best combined one. Some clients only
+        # expose combined formats, and a strict audio-only selector would fail there.
+        *ytdlp_cmd(), "--no-playlist", "--newline", "-f", "ba/b",
         "-x", "--audio-format", "wav",
         "--postprocessor-args", f"ExtractAudio+ffmpeg_o:-ar {SAMPLE_RATE} -ac 1",
         "-o", str(output_dir / f"{stem}.%(ext)s"),
@@ -126,10 +156,22 @@ def download_audio(url: str, stem: str, output_dir: Path, max_minutes: int | Non
         end_m, end_s = divmod(end_rem, 60)
         cmd += ["--download-sections", f"*00:00:00-{end_h:02d}:{end_m:02d}:{end_s:02d}"]
     log(f"Downloading audio{f' (first {max_minutes} min)' if max_minutes else ''} -> {wav}")
-    subprocess.run([*cmd, url], check=True)
-    if not wav.exists():
-        raise PipelineError(f"yt-dlp finished but {wav} was not produced (is ffmpeg on PATH?)")
-    return wav
+
+    # YouTube intermittently answers 403 Forbidden for one player client's stream URLs
+    # (signature / PO-token blocks), so try the android client first, then yt-dlp's defaults.
+    for i, (client, extra) in enumerate(YTDLP_CLIENTS):
+        if i:
+            log(f"Retrying download with the {client} player client")
+            for partial in output_dir.glob(f"{stem}.*"):  # never resume from a failed attempt's file
+                partial.unlink(missing_ok=True)
+        if subprocess.run([*cmd, *extra, url]).returncode == 0 and wav.exists():
+            return wav
+        log(f"Download with the {client} player client failed")
+    raise PipelineError(
+        "YouTube refused the audio download (often a temporary 403 Forbidden block). "
+        "Try again in a few minutes, update yt-dlp (`pip install -U yt-dlp`), or download the "
+        "video yourself and use the Upload file tab instead."
+    )
 
 
 def _is_16k_mono_wav(path: Path) -> bool:
@@ -193,6 +235,8 @@ def diarize(wav: Path, device) -> list[dict]:
         waveform = torch.from_numpy(data.T)
     audio_input = {"waveform": waveform, "sample_rate": sr}
 
+    seconds = waveform.shape[-1] / sr
+    log(f"Audio duration: {fmt_clock(seconds)} ({seconds:.1f}s)")
     log("Diarizing (this is the slow step for long sittings)…")
     t0 = time.time()
     try:
@@ -245,12 +289,31 @@ def save_json(path: Path, payload: dict) -> None:
     os.replace(tmp, path)
 
 
+def fit_prompt(prompt: str, tokenizer) -> tuple[str, list[str]]:
+    """Keep vocabulary terms in order until the next one would exceed PROMPT_TOKEN_BUDGET.
+
+    Returns the fitted prompt and the dropped terms. Tokens are counted exactly as
+    faster-whisper encodes initial_prompt (with a leading space).
+    """
+    terms, kept = vocab_terms(prompt), []
+    for term in terms:
+        candidate = ", ".join([*kept, term]) + "."
+        if len(tokenizer.encode(" " + candidate, add_special_tokens=False).ids) > PROMPT_TOKEN_BUDGET:
+            break
+        kept.append(term)
+    return ", ".join(kept) + ".", terms[len(kept):]
+
+
 def transcribe_turns(wav: Path, turns: list[dict], cuda: bool, out_path: Path, payload: dict) -> None:
     from faster_whisper import WhisperModel
 
     device, compute_type = ("cuda", "float16") if cuda else ("cpu", "int8")
     log(f"Loading faster-whisper {ASR_MODEL} ({device}/{compute_type})")
     model = WhisperModel(ASR_MODEL, device=device, compute_type=compute_type)
+    prompt, dropped = fit_prompt(INITIAL_PROMPT, model.hf_tokenizer)
+    if dropped:
+        log(f"WARNING: vocabulary prompt exceeds Whisper's {PROMPT_TOKEN_BUDGET}-token budget; "
+            f"dropped {len(dropped)} terms from the end: {', '.join(dropped)}")
 
     results = payload["turns"]
     total, t0 = len(turns), time.time()
@@ -261,7 +324,7 @@ def transcribe_turns(wav: Path, turns: list[dict], cuda: bool, out_path: Path, p
         segments, _ = model.transcribe(
             load_slice(wav, start, end),
             language=ASR_LANGUAGE,
-            initial_prompt=INITIAL_PROMPT,
+            initial_prompt=prompt,  # INITIAL_PROMPT, fitted to the token budget
             condition_on_previous_text=False,
             vad_filter=True,
             beam_size=5,
@@ -278,9 +341,9 @@ def transcribe_turns(wav: Path, turns: list[dict], cuda: bool, out_path: Path, p
 
         elapsed = time.time() - t0
         eta = elapsed / i * (total - i)
-        preview = (text[:70] + "…") if len(text) > 70 else text
+        # Full text on one line: the Streamlit runner parses these into its live dialogue feed
         log(f"[{i}/{total}] {turn['speaker']} {fmt_clock(start)}-{fmt_clock(end)} "
-            f"(ETA {eta / 60:.1f} min) {preview or '<no speech>'}")
+            f"(ETA {eta / 60:.1f} min) {' '.join(text.split()) or '<no speech>'}")
         if i % SAVE_EVERY == 0:
             payload["speakers_detected"] = sorted({t["speaker"] for t in results})
             save_json(out_path, payload)
@@ -318,6 +381,7 @@ def run(
     output_dir.mkdir(parents=True, exist_ok=True)
     cuda = resolve_cuda(device)  # fail fast before any download
     log(f"Execution device: {'cuda (float16)' if cuda else 'cpu (int8)'}")
+    log(f"Loaded parliamentary vocabulary prompt ({len(vocab_terms(INITIAL_PROMPT))} terms)")
 
     if audio:
         src = Path(audio)

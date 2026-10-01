@@ -8,7 +8,7 @@ Given a YouTube livestream or a local recording, omni-diarize answers two questi
 |---|---|
 | **Diarization** | [`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1), overlap-aware neural segmentation and clustering |
 | **ASR** | [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) `large-v3`, Malay with English code-switching, primed with parliamentary vocabulary |
-| **UI** | Streamlit multi-page app: run the pipeline, then explore the transcript |
+| **UI** | Streamlit app (dark theme): run the pipeline with live progress, then explore the transcript |
 | **Runs on** | NVIDIA GPU (float16) or CPU (int8) on Windows, macOS and Linux |
 
 ---
@@ -126,7 +126,6 @@ The pyannote diarization models are **gated**. Without these steps the pipeline 
 2. Open each model page below while signed in. Fill in the short form and click **"Agree and access repository"**:
    - <https://huggingface.co/pyannote/speaker-diarization-3.1>
    - <https://huggingface.co/pyannote/segmentation-3.0>
-   - *(only needed for `enroll_mps.py`)* <https://huggingface.co/pyannote/embedding>
 3. Create an access token at <https://huggingface.co/settings/tokens>. **Read** permission is enough.
 4. Copy the example env file and paste in your token:
 
@@ -162,33 +161,40 @@ The pyannote diarization models are **gated**. Without these steps the pipeline 
 streamlit run app.py
 ```
 
-Then open <http://localhost:8501>. The app has two pages, listed in the sidebar.
+Then open <http://localhost:8501>. Switch between the two pages with the navigation bar at the top. The app uses a dark theme by default; you can switch to light mode in the ⋮ menu → **Settings**.
 
-#### 🚀 Run Pipeline
+#### Run Pipeline
 
-1. **Environment check.** Status pills show whether ffmpeg, `HF_TOKEN`, the ML packages and a CUDA GPU are available. If anything is missing, a checklist tells you how to fix it, and **Start Processing** stays disabled until it is fixed.
+1. **Environment check.** A row of badges shows whether ffmpeg, `HF_TOKEN`, the ML packages and a CUDA GPU are available. **Model stack** (on the right) lists the models in use. If anything is missing, a checklist tells you how to fix it, and **Start processing** stays disabled until it is fixed.
 2. **Source.** Choose either:
    - **YouTube URL.** The video's thumbnail, title, channel, duration and upload date load before you run anything.
    - **Upload file.** Accepts `.wav`, `.mp3`, `.mp4` or `.m4a`, up to 2 GB. The file is saved to `data/uploads/`.
-3. **Execution settings.**
-   - **Duration limit (minutes).** Defaults to **2**. Tick **Full audio** to process the whole recording. Keep the limit for local CPU demos to avoid long processing times.
-   - **Force CPU execution (int8).** Leave it unticked to auto-detect CUDA (float16 on GPU).
-4. **▶ Start Processing.** Runs `run_pipeline.py` as a background process. The page shows:
-   - a progress bar with the current stage (download → diarization → `Transcribing turn i/N`)
-   - the live terminal output
-   - the equivalent CLI command, so you can reproduce the run
+3. **Settings.**
+   - **Duration limit (minutes).** Defaults to **2**. Turn on **Process full audio** to process the whole recording. Keep the limit for local CPU demos to avoid long processing times.
+   - **Force CPU (int8).** Leave it off to auto-detect CUDA (float16 on GPU).
+4. **Start processing.** Runs `run_pipeline.py` as a background process and replaces the form with a live progress display:
+   - a **status badge** for the current stage: *Downloading → Diarizing → Transcribing*, then *Complete*, *Failed* or *Cancelled*
+   - **three stage cards** (Ingesting audio · Speaker diarization · Turn-by-turn transcription), each marked waiting, active, done or failed, with a plain-language note such as *Found 12 turns from 3 speakers*
+   - during transcription, a **progress bar** (turns done ÷ total turns) and three tiles: **Current turn**, **Audio processed** (e.g. `01:30 / 02:00`) and **ETA**
+   - a **live transcript feed** showing the latest 5 turns as dialogue cards (speaker, timestamp, Malay text) as soon as each is transcribed
+   - **🛠️ Detailed Terminal Logs**, collapsed by default, with the raw output, the equivalent CLI command and a log download
    - a **Cancel** button
 
-   The job keeps running if you switch pages or refresh the browser. When it finishes, the app **opens the new transcript in the viewer automatically**.
+   The job keeps running if you switch pages or refresh the browser. Only one run happens at a time; to start another, open **Start a new run** below the progress display.
+5. **When it finishes**, a banner summarises the result:
+   - **Success:** the number of turns and speakers, plus an **Open in Transcript Viewer 🏛️** button that opens the new transcript.
+   - **Failure:** the actual error message (details are in the collapsed logs).
+   - **No speech found:** a warning instead of an empty transcript. This usually means the clip was silent or music only, e.g. the intro of a live stream. Try a longer duration limit.
 
-#### 🏛️ Transcript Viewer
+#### Transcript Viewer
 
-- **Session selector.** Lists every transcript JSON in `data/`, newest first, so fresh pipeline output is selected by default.
-- **Click-to-play.** Each turn has a **▶** button that jumps the sidebar audio player to that moment and highlights the turn.
-- **Metrics and analytics.** Shows turns, speakers, spoken time and word count, plus a speaker-distribution chart and table (talk time, share, turns, words).
-- **Search and filter.** Full-text search highlights matches. You can also filter by speaker. Results are paginated in pages of 25 turns.
-- **Export.** Download the Hansard as `.txt` or `.docx`, or the raw `.json`.
-- **Offline demo.** Two small mock transcripts ship in `data/`, so the viewer works right after cloning, before any pipeline run.
+- **Header.** The session title, a **Session** dropdown listing every transcript JSON in `data/` (newest first, so fresh pipeline output is selected by default) and an **Export** menu for the Hansard `.txt` / `.docx` or the raw `.json`.
+- **Summary tiles.** Turns, speakers, spoken time and word count.
+- **Playback.** The audio player sits above the tabs. Each turn has a **▶** button that jumps the player to that moment and highlights the turn.
+- **Transcript tab.** Full-text search highlights matches, and you can filter by speaker (empty = all speakers). Results are paged 25 turns at a time, with **Previous** / **Next** at the bottom.
+- **Speakers tab.** A table with one row per speaker: role, identified or not, talk time, share of talk time, turns and words.
+- **Session details tab.** Chamber and file metadata, the audio file in use and the model stack.
+- **Offline demo.** A small mock transcript (`data/parlimen_transcript.json`) ships with the repo, so the viewer works right after cloning, before any pipeline run.
 
 ### CLI mode
 
@@ -214,7 +220,13 @@ All flags:
 | `--output-dir DIR` | Folder for the WAV and the transcript JSON. Default: `data`. |
 | `--device {auto,cpu,cuda}` | `auto` uses CUDA when available. `cpu` forces int8. `cuda` fails if no GPU is found. |
 
-The output is `data/<stem>_transcript.json`, written next to its 16 kHz WAV. Clipped runs get a `_<N>min` suffix, so a 2-minute demo never overwrites a full run. The JSON is checkpointed every 10 turns, so you can open a long run in the viewer while it is still in progress.
+The output is `data/<stem>_transcript.json`, written next to its 16 kHz WAV. Clipped runs get a `_<N>min` suffix, so a 2-minute demo never overwrites a full run. A WAV that already exists is reused rather than downloaded again. The JSON is checkpointed every 10 turns, so you can open a long run in the viewer while it is still in progress.
+
+**YouTube downloads.** yt-dlp first tries YouTube's `android` player client, then falls back to its default client. This works around the intermittent `403 Forbidden` that YouTube returns for some clients' stream URLs. The format selector is `ba/b` (best audio-only stream, otherwise the best combined stream). If both attempts fail, the run stops with a message suggesting you retry later, update yt-dlp, or upload the file instead.
+
+**Parliamentary vocabulary.** Whisper is primed with Dewan Rakyat terms (procedure, honorifics, Hansard acronyms, commonly misheard names) through its `initial_prompt`. The list lives in `data/parliament_vocab.txt` as comma-separated terms, **most important first**, so you can tune it without touching code. If the file is missing, `DEFAULT_PARLIAMENT_PROMPT` in `core/config.py` is used. Whisper accepts at most 223 prompt tokens (roughly 35–40 terms). Left alone, faster-whisper would drop the *start* of a longer prompt, so the pipeline trims terms from the *end* instead and logs a `WARNING` naming every dropped term.
+
+**Log format.** Each pipeline message is printed as `[HH:MM:SS] <message>`, and each transcribed turn as `[i/N] SPEAKER_00 MM:SS.ss-MM:SS.ss (ETA x.x min) <full text>`. The Run Pipeline page parses these lines to drive its live progress display, so keep that format if you change the logging.
 
 ### Programmatic use
 
@@ -225,20 +237,12 @@ transcript = run(url="https://www.youtube.com/watch?v=kY8wAT2QO5Y", max_duration
 print(transcript)  # Path to the transcript JSON
 ```
 
-### MP voiceprint enrolment (experimental)
-
-```bash
-python enroll_mps.py --audio data/parlimen_full.wav
-```
-
-This extracts `pyannote/embedding` voiceprints for a list of MPs, using known clean time windows from a full sitting. It writes them to `mp_database.json`, which is git-ignored. The database is the basis for cosine-similarity speaker naming (see [Architecture](#4-architecture)).
-
 ---
 
 ## 4. Architecture
 
 ```
- YouTube URL ──► yt-dlp ──┐
+ YouTube URL ──► yt-dlp ──┐      (android client, then default)
                           ├──► 16 kHz mono WAV (ffmpeg; trimmed to --max-duration)
  Local file ──► ffmpeg ───┘                │
                                            ▼
@@ -256,22 +260,20 @@ This extracts `pyannote/embedding` voiceprints for a list of MPs, using known cl
                         └──────────────────┬──────────────────┘
                                            ▼
                            data/<stem>_transcript.json  ──►  Streamlit viewer
-                                           ▲
-             enroll_mps.py ─► mp_database.json (voiceprints, for speaker naming)
 ```
 
 **Code layout**
 
 - `run_pipeline.py` contains the whole pipeline. You can run it as a CLI or import it as a library through `run()`. Heavy ML imports are lazy, so the UI can import its helpers cheaply.
-- `app.py` is the Streamlit router built on `st.navigation`. Each page lives in `pages/`.
-- `core/jobs.py` holds the `JobManager`. It starts `run_pipeline.py` as a separate process that logs to `data/logs/`, and the UI tails that log from a polling fragment. This keeps the UI responsive, lets a run survive reruns, and runs one job at a time.
-- `core/transcript.py` handles transcript loading (it tolerates several schema variants), speaker roles, card rendering and the exports.
+- `app.py` is the Streamlit router built on `st.navigation` with a top navigation bar. Each page lives in `pages/`. The theme (dark greys, accent colour) is set in `.streamlit/config.toml`.
+- `core/jobs.py` holds the `JobManager`. It starts `run_pipeline.py` as a separate process that logs to `data/logs/`. This keeps the UI responsive, lets a run survive reruns, and runs one job at a time. `parse_log()` turns the log into a `RunState` (current stage, parsed turns, progress, ETA, error), which a polling fragment on the Run Pipeline page re-renders every second.
+- `core/transcript.py` handles transcript loading (it tolerates several schema variants), speaker roles, the shared CSS and card rendering, and the exports.
 
 **Design notes**
 
 - **Diarize first, then transcribe each turn.** Every ASR call sees exactly one speaker. Text is attributed by construction, so no word-to-speaker alignment heuristics are needed.
 - **Normalised audio.** Every input is converted to 16 kHz mono before processing. Turn slices are read by sample offset, which keeps memory use flat even for a 3-hour sitting.
-- **Speaker naming.** Diarization labels are anonymous (`SPEAKER_00`, …). `enroll_mps.py` builds an enrolment gallery of MP voiceprints. A speaker takes an MP's name when the cosine similarity `(a·b)/(‖a‖‖b‖)` clears a threshold (e.g. `0.70`). Wiring this matching into `run_pipeline.py` is the next milestone. The viewer already shows role icons and *Identified* / *Unidentified* badges based on the speaker label.
+- **Speaker naming (planned).** Diarization labels are anonymous (`SPEAKER_00`, …). The plan is to match each speaker's voice embedding against enrolled MP voiceprints, taking an MP's name when the cosine similarity `(a·b)/(‖a‖‖b‖)` clears a threshold (e.g. `0.70`). The viewer already shows roles and *Identified* / *Unidentified* status based on the speaker label, so named labels will show up there as soon as the pipeline produces them.
 
 ---
 
@@ -297,22 +299,21 @@ CPU figures are rough estimates. They depend heavily on core count and on how mu
 
 ```
 omni-diarize/
-├── app.py                          # Streamlit entry point (router + shared sidebar)
+├── app.py                          # Streamlit entry point (top-nav router + shared CSS)
 ├── pages/
-│   ├── Run_Pipeline.py         # ingestion, settings, live run logs
-│   └── Transcript_Viewer.py    # Hansard viewer, playback, analytics, export
+│   ├── Run_Pipeline.py             # source & settings form, live progress display
+│   └── Transcript_Viewer.py        # Hansard viewer, playback, speakers, export
 ├── core/
 │   ├── config.py                   # paths, page routes, static metadata
-│   ├── jobs.py                     # background pipeline runner (subprocess + log tailing)
-│   └── transcript.py               # loading, roles, rendering, .txt/.docx export
+│   ├── jobs.py                     # background pipeline runner + log parser (RunState)
+│   └── transcript.py               # loading, roles, CSS, rendering, .txt/.docx export
 ├── run_pipeline.py                 # CLI + library: download → diarize → transcribe
-├── enroll_mps.py                   # MP voiceprint enrolment (experimental)
 ├── data/
-│   ├── parlimen_transcript.json            # mock transcript (tracked, for offline UI)
-│   ├── session_mock_pmqt_transcript.json   # mock transcript (tracked)
-│   ├── uploads/   logs/                    # created at runtime, git-ignored
-│   └── *.wav, *_transcript.json            # pipeline output, git-ignored
-├── .streamlit/config.toml          # 2 GB upload limit
+│   ├── parlimen_transcript.json    # mock transcript (tracked, for offline UI)
+│   ├── parliament_vocab.txt        # Whisper vocabulary prompt (tracked; most important terms first)
+│   ├── uploads/   logs/            # created at runtime, git-ignored
+│   └── *.wav, *_transcript.json    # pipeline output, git-ignored
+├── .streamlit/config.toml          # dark theme, minimal toolbar, 2 GB upload limit
 ├── .env.example                    # copy to .env and add HF_TOKEN
 ├── requirements.txt
 └── README.md
@@ -345,7 +346,7 @@ The loader is lenient about key names:
 - Speaker can be `speaker`, `speaker_name` or `label`.
 - Start and end times can be `start`/`end`, `start_time`/`end_time`, or a parsed `timestamp` string.
 - An optional score can be `confidence`, `similarity` or `score`.
-- Top-level scalar fields appear in the sidebar's *Chamber* panel.
+- Top-level scalar fields appear in the viewer's **Session details** tab, and `title` is used as the page heading.
 
 Audio is found through `audio_file`, or failing that as `<stem without _transcript>.wav` in the same folder.
 
@@ -358,8 +359,11 @@ Audio is found through `audio_file`, or failing that as `<stem without _transcri
 | `ffmpeg was not found on PATH` | Install FFmpeg (see [Prerequisites](#1-prerequisites)) and **open a new terminal**. |
 | `HF_TOKEN is not set` | Create `.env` from `.env.example` (see [step 4](#step-4--configure-your-hugging-face-token)). |
 | `Could not load pyannote/...` / 401 / 403 | Accept the licence on **both** pyannote model pages while signed in to the account that owns the token. |
-| `ML dependencies are missing` | Activate the venv, then run `pip install -r requirements.txt`. |
+| `ML dependencies are missing`, or the **ML stack** badge is red | The Python running Streamlit doesn't have torch / pyannote.audio / faster-whisper. Activate the same venv, run `pip install -r requirements.txt`, then click **Re-check environment** (the check is cached for 60 s). |
+| **CUDA unknown** badge | torch isn't installed yet, so the GPU can't be probed. Fix the ML stack first. |
 | `torch.cuda.is_available()` is `False` on a GPU machine | Reinstall torch from the CUDA index (see [step 3](#step-3--install-dependencies)). |
-| YouTube download fails or `Sign in to confirm you're not a bot` | Run `pip install -U yt-dlp`. On cloud or datacenter IPs, download the audio elsewhere and use `--audio` or the upload option instead. |
+| YouTube `403 Forbidden`, `YouTube refused the audio download` or `Sign in to confirm you're not a bot` | Usually temporary; both player clients were blocked. Wait a few minutes and retry, and run `pip install -U yt-dlp`. On cloud or datacenter IPs, download the audio elsewhere and use `--audio` or the **Upload file** tab instead. |
+| Run finishes with *no speech was found* / `Done: 0 turns` | Diarization found no speech in the processed audio, often a live stream's silent or music-only intro. Raise the duration limit. |
+| Run page errors after updating the code | Restart `streamlit run app.py`. The running server keeps the old job-tracking code in memory. |
 | Upload rejected as too large | Raise `server.maxUploadSize` in `.streamlit/config.toml`. |
 | Viewer shows *Audio not found* | Put the WAV in `data/` next to the JSON, using the name given in its `audio_file` field. |

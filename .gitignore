@@ -26,14 +26,13 @@ ENV/
 !.env.example
 .streamlit/secrets.toml
 
-# --- Model caches & generated voiceprints ---
+# --- Model caches & weights ---
 .cache/
 models/
 *.pt
 *.bin
 *.onnx
 *.safetensors
-mp_database.json
 
 # --- Large audio / video files ---
 *.wav
@@ -57,8 +56,7 @@ data/uploads/
 data/logs/
 data/*.json
 data/*.json.tmp
-# ...except small mock transcripts, kept so the viewer works offline right after cloning
-!data/session_mock_pmqt_transcript.json
+# ...except the small mock transcript, kept so the viewer works offline right after cloning
 !data/parlimen_transcript.json
 
 # --- OS / editor ---
@@ -66,4 +64,5 @@ data/*.json.tmp
 Thumbs.db
 desktop.ini
 .vscode/
+.claude/settings.local.json
 .idea/

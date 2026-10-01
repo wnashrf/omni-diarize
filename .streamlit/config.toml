@@ -4,3 +4,19 @@ maxUploadSize = 2048
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# Hide developer-only toolbar items (deploy button, etc.).
+toolbarMode = "minimal"
+
+[theme]
+base = "dark"
+primaryColor = "#4c7ee8"
+baseRadius = "medium"
+# Layered dark greys (not pure black): page < cards/inputs < borders; terminal output a shade darker.
+backgroundColor = "#24272e"
+secondaryBackgroundColor = "#30343c"
+textColor = "#e6e8eb"
+borderColor = "#3e434c"
+codeBackgroundColor = "#1d2025"
+dataframeHeaderBackgroundColor = "#30343c"
