@@ -1,0 +1,6 @@
+[server]
+# Full sittings are large (a 3-hour 16 kHz WAV is ~350 MB); default limit is 200 MB.
+maxUploadSize = 2048
+
+[browser]
+gatherUsageStats = false

@@ -1,15 +1,27 @@
-# --- UI (proof-of-concept viewer) ---
-streamlit>=1.40
-pandas>=2.2
+# omni-diarize — Python 3.10+ (3.11 / 3.12 recommended for the widest ML wheel coverage)
+#
+#   pip install -r requirements.txt
+#
+# GPU (NVIDIA CUDA): the default PyPI torch wheel on Windows/Linux is CPU-only or tied to one
+# CUDA version. For GPU runs install the matching CUDA build of torch/torchaudio FIRST, e.g.
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+# then run `pip install -r requirements.txt` (already-satisfied torch is left untouched).
+#
+# System dependency (not pip-installable): ffmpeg on PATH — see README.
+
+# --- Web UI (Streamlit multi-page app) ---
+streamlit>=1.50,<2         # st.navigation, polling fragments, width="stretch"
+pandas>=2.2                # speaker analytics table
+python-docx>=1.1           # Hansard .docx export
 
 # --- Helper utilities ---
-python-dotenv>=1.0     # load HF_TOKEN etc. from .env
-numpy>=1.26            # embedding maths (cosine similarity)
-soundfile>=0.12        # audio I/O / duration probing
+python-dotenv>=1.0         # load HF_TOKEN from .env
+numpy>=1.26                # embedding maths (cosine similarity)
+soundfile>=0.12            # WAV I/O, sample-accurate slicing, format probing
+yt-dlp>=2025.1.1           # YouTube metadata + audio download (keep current: pip install -U yt-dlp)
 
-# --- ML pipeline (uncomment when running inference locally) ---
-# pyannote.audio>=3.1   # neural speaker diarization (requires HF token + model licence acceptance)
-# faster-whisper>=1.0   # large-v3 Malay-English ASR
-# torch>=2.2
-# torchaudio>=2.2       # per-turn audio slicing in run_pipeline.py
-# yt-dlp                # YouTube audio download (also needs ffmpeg on PATH)
+# --- ML pipeline ---
+torch>=2.2
+torchaudio>=2.2            # audio loading / resampling (soundfile is the fallback)
+pyannote.audio>=3.3,<5     # speaker-diarization-3.1 (gated: needs HF_TOKEN + licence acceptance)
+faster-whisper>=1.1        # CTranslate2 Whisper large-v3, int8 on CPU / float16 on CUDA

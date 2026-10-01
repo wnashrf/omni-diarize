@@ -1,0 +1,73 @@
+{
+  "audio_file": "parlimen_test.wav",
+  "speakers_detected": [
+    "Unknown MP (SPEAKER_02)",
+    "YB Sri Aman (Dato' Sri Doris Sophia Brodi)",
+    "Perdana Menteri (Dato' Seri Anwar Ibrahim)"
+  ],
+  "turns": [
+    {
+      "speaker": "Unknown MP (SPEAKER_02)",
+      "start": 1.87,
+      "end": 12.79,
+      "timestamp": "00:01.87 - 00:12.79",
+      "text": "Bismillahirrahmanirrahim. Sebelum saya memulakan sesi pertanyaan jawab tulisan Perdana Menteri."
+    },
+    {
+      "speaker": "Unknown MP (SPEAKER_02)",
+      "start": 14.64,
+      "end": 55.23,
+      "timestamp": "00:14.64 - 00:55.23",
+      "text": "Ahli-Ahli Yang Berhormat, dengan perasaan yang ada cerita dan sedih, saya ingin mengumumkan kepada Ahli-Ahli Yang Berhormat sekalian  bahawa Abang Kandung kepada Yang Berhormat Datuk Seri Takiuddin bin Hassan, Ahli Parlimen Kota Baru, telah kembali ke Ramadullah pada malam tadi.  Saya bagi pihak Ahli-Ahli Dewan ini dan bagi pihak Parlimen seluruhnya ingin merakamkan ucapan takziah kepada Yang Berhormat Datuk Seri Takiuddin bin Hassan  atas pemberian Abang Kandungnya. Kita berdoa moga-moga Allah SWT mencucuri rahmat ke atas ruh beliau serta ditempatkan di kalangan orang-orang yang soleh serta beriman."
+    },
+    {
+      "speaker": "Unknown MP (SPEAKER_02)",
+      "start": 60.11,
+      "end": 65.03,
+      "timestamp": "01:00.11 - 01:05.03",
+      "text": "Yang Berhormat, sebelum saya memulakan, saya ingin mengingatkan agar"
+    },
+    {
+      "speaker": "Unknown MP (SPEAKER_02)",
+      "start": 66.75,
+      "end": 86.03,
+      "timestamp": "01:06.75 - 01:26.03",
+      "text": "Sesi pada pagi ini berjalan dengan tertib dan berhemah dan ini juga saya mengingatkan Peraturan 35, 36 dan 37 iaitu masa dan cara bercakap, isi ucapan terutama sekali Peraturan 36, 10C, sakit menyakit hati di antara kalangan Yang Berhormat, Yang Berhormat."
+    },
+    {
+      "speaker": "Unknown MP (SPEAKER_02)",
+      "start": 87.92,
+      "end": 101.11,
+      "timestamp": "01:27.92 - 01:41.11",
+      "text": "Cara mengganggu ucapan. Dengan ini, saya mulakan sesi pertanyaan Perdana Menteri dengan mempersilahkan Datuk Seri Doris Sofia Rodi Yang Berhormat, Sri Aman."
+    },
+    {
+      "speaker": "YB Sri Aman (Dato' Sri Doris Sophia Brodi)",
+      "start": 102.18,
+      "end": 131.84,
+      "timestamp": "01:42.18 - 02:11.84",
+      "text": "Terima kasih, Tuan Yang di-Pertua.  Sri Aman minta Perdana Menteri memberi penjelasan berhubung dawaan bahawa peruntukan kerjaan persekutuan kepada kerjaan negeri yang tidak adil dan tidak mencukupi berbanding hasil yang dikutip.  Apakah usaha-usaha yang diambil oleh kerjaan MADANI dalam menambah baik penyaluran peruntukan supaya memenuhi keperluan rakyat di setiap negeri?  Mohon jawapan."
+    },
+    {
+      "speaker": "Unknown MP (SPEAKER_02)",
+      "start": 131.3,
+      "end": 133.02,
+      "timestamp": "02:11.30 - 02:13.02",
+      "text": "Terima kasih."
+    },
+    {
+      "speaker": "Perdana Menteri (Dato' Seri Anwar Ibrahim)",
+      "start": 133.02,
+      "end": 177.27,
+      "timestamp": "02:13.02 - 02:57.27",
+      "text": "Tuan Yang Berhormat, Perdana Menteri.  Dan bila ada kesepakatan penyerahan milik kepada Kerajaan Negeri, Kerajaan Negeri telah menyerahkan wang tunai bayaran RM1.5 bilion kepada Kerajaan Persekutuan."
+    },
+    {
+      "speaker": "Perdana Menteri (Dato' Seri Anwar Ibrahim)",
+      "start": 179.34,
+      "end": 182.33,
+      "timestamp": "02:59.34 - 03:02.33",
+      "text": "Minta maaf, minta buang Rp1.8 bilion."
+    }
+  ]
+}

@@ -20,18 +20,20 @@ venv/
 env/
 ENV/
 
-# --- Environment / secrets (e.g. HF_TOKEN for PyAnnote) ---
+# --- Environment / secrets (HF_TOKEN for pyannote) ---
 .env
 .env.*
+!.env.example
 .streamlit/secrets.toml
 
-# --- Model caches ---
+# --- Model caches & generated voiceprints ---
 .cache/
 models/
 *.pt
 *.bin
 *.onnx
 *.safetensors
+mp_database.json
 
 # --- Large audio / video files ---
 *.wav
@@ -48,6 +50,16 @@ models/
 *.avi
 *.webm
 
+# --- Pipeline outputs (data/) ---
+# Audio, uploads, run logs and generated transcripts stay local.
+data/*.wav
+data/uploads/
+data/logs/
+data/*.json
+data/*.json.tmp
+# ...except small mock transcripts, kept so the viewer works offline right after cloning
+!data/session_mock_pmqt_transcript.json
+!data/parlimen_transcript.json
 
 # --- OS / editor ---
 .DS_Store
@@ -55,6 +67,3 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
-
-data/*.wav
-data/*.json

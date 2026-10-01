@@ -1,17 +1,23 @@
 """omni-diarize — end-to-end pipeline for a Dewan Rakyat sitting.
 
 Usage:
-    # 1. Direct from local audio (Bypasses YouTube datacenter blocks entirely):
-    python run_pipeline.py --audio data/parlimen_full.wav
+    # Fast CPU demo: first 2 minutes of a YouTube sitting
+    python run_pipeline.py --url "https://www.youtube.com/watch?v=XXXX" --max-duration 2
 
-    # 2. Or from YouTube URL directly:
-    python run_pipeline.py --url "https://www.youtube.com/watch?v=XXXX" [--max-duration 120]
+    # Local audio or video (.wav / .mp3 / .mp4 / .m4a …) — bypasses YouTube entirely
+    python run_pipeline.py --audio data/parlimen_full.wav [--device cpu]
 
-Steps: (yt-dlp if URL) -> pyannote 3.1 diarization + turn stitching
--> faster-whisper large-v3 per turn -> <output-dir>/<stem>_transcript.json
+Programmatic:
+    from run_pipeline import run
+    transcript_path = run(url="https://…", max_duration=2, output_dir="data")
 
-The JSON matches the schema read by app.py (`turns[]` of speaker/start/end/timestamp/text)
-and sits next to its WAV so the viewer can find the audio. Requires HF_TOKEN (env or .env).
+Steps: (yt-dlp if URL | ffmpeg normalise if local) -> 16 kHz mono WAV
+-> pyannote 3.1 diarization + turn stitching -> faster-whisper large-v3 per turn
+-> <output-dir>/<stem>_transcript.json
+
+The JSON matches the schema read by the Streamlit viewer (`turns[]` of
+speaker/start/end/timestamp/text) and sits next to its WAV so the viewer can find
+the audio. Requires HF_TOKEN (env or .env) and ffmpeg on PATH.
 """
 
 from __future__ import annotations
@@ -38,6 +44,11 @@ INITIAL_PROMPT = (
     "Dewan Rakyat, Yang di-Pertua, Perdana Menteri, Yang Berhormat, Ahli Parlimen, "
     "Rang Undang-Undang, Belanjawan, Peruntukan, Hansard."
 )
+OUTPUT_MARKER = "OUTPUT_JSON="  # final stdout line, parsed by the Streamlit runner
+
+
+class PipelineError(RuntimeError):
+    """A user-facing failure (missing token, missing ffmpeg, bad input …)."""
 
 
 def log(msg: str) -> None:
@@ -45,7 +56,7 @@ def log(msg: str) -> None:
 
 
 def fmt_clock(seconds: float) -> str:
-    """Seconds -> 'MM:SS.ss' (or 'HH:MM:SS.ss'), the format app.py parses."""
+    """Seconds -> 'MM:SS.ss' (or 'HH:MM:SS.ss'), the format the viewer parses."""
     m, s = divmod(seconds, 60)
     h, m = divmod(int(m), 60)
     return f"{h:02d}:{m:02d}:{s:05.2f}" if h else f"{m:02d}:{s:05.2f}"
@@ -57,6 +68,11 @@ def sanitize(title: str, max_len: int = 80) -> str:
     return clean[:max_len].rstrip("_") or "video"
 
 
+def duration_suffix(max_minutes: int | None) -> str:
+    """Clipped runs get their own files so a 2-min demo never shadows a full run."""
+    return f"_{max_minutes}min" if max_minutes else ""
+
+
 # ------------------------------------------------------------------ download
 def ytdlp_cmd() -> list[str]:
     if exe := shutil.which("yt-dlp"):
@@ -64,16 +80,32 @@ def ytdlp_cmd() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
 
 
-def fetch_metadata(url: str) -> tuple[str, str]:
-    """Return (video_id, title) without downloading."""
-    out = subprocess.run(
-        [*ytdlp_cmd(), "--no-playlist", "--skip-download", "--encoding", "utf-8",
-         "--print", "id", "--print", "title", url],
-        capture_output=True, text=True, encoding="utf-8", check=True,
-    ).stdout.strip().splitlines()
-    if len(out) < 2:
-        raise RuntimeError(f"Unexpected yt-dlp metadata output: {out!r}")
-    return out[0].strip(), out[1].strip()
+def require_ffmpeg() -> str:
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        raise PipelineError("ffmpeg was not found on PATH. Install it (see README) and reopen the terminal.")
+    return exe
+
+
+def fetch_video_info(url: str) -> dict:
+    """Return YouTube metadata (id, title, channel, duration, thumbnail) without downloading."""
+    proc = subprocess.run(
+        [*ytdlp_cmd(), "--no-playlist", "--skip-download", "--dump-single-json", "--no-warnings", url],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip().splitlines()
+        raise PipelineError(f"yt-dlp could not read {url}: {detail[-1] if detail else 'unknown error'}")
+    info = json.loads(proc.stdout)
+    return {
+        "id": info.get("id", ""),
+        "title": info.get("title") or info.get("id", "video"),
+        "channel": info.get("channel") or info.get("uploader") or "",
+        "duration": info.get("duration"),
+        "thumbnail": info.get("thumbnail"),
+        "upload_date": info.get("upload_date"),
+        "webpage_url": info.get("webpage_url") or url,
+    }
 
 
 def download_audio(url: str, stem: str, output_dir: Path, max_minutes: int | None) -> Path:
@@ -82,8 +114,9 @@ def download_audio(url: str, stem: str, output_dir: Path, max_minutes: int | Non
         log(f"Reusing existing audio {wav} (delete it to re-download)")
         return wav
 
+    require_ffmpeg()
     cmd = [
-        *ytdlp_cmd(), "--no-playlist", "-f", "bestaudio/best",
+        *ytdlp_cmd(), "--no-playlist", "--newline", "-f", "bestaudio/best",
         "-x", "--audio-format", "wav",
         "--postprocessor-args", f"ExtractAudio+ffmpeg_o:-ar {SAMPLE_RATE} -ac 1",
         "-o", str(output_dir / f"{stem}.%(ext)s"),
@@ -91,22 +124,55 @@ def download_audio(url: str, stem: str, output_dir: Path, max_minutes: int | Non
     if max_minutes:
         end_h, end_rem = divmod(max_minutes * 60, 3600)
         end_m, end_s = divmod(end_rem, 60)
-        section_str = f"*00:00:00-{int(end_h):02d}:{int(end_m):02d}:{int(end_s):02d}"
-        cmd += ["--download-sections", section_str]
+        cmd += ["--download-sections", f"*00:00:00-{end_h:02d}:{end_m:02d}:{end_s:02d}"]
     log(f"Downloading audio{f' (first {max_minutes} min)' if max_minutes else ''} -> {wav}")
     subprocess.run([*cmd, url], check=True)
     if not wav.exists():
-        raise FileNotFoundError(f"yt-dlp finished but {wav} was not produced (is ffmpeg on PATH?)")
+        raise PipelineError(f"yt-dlp finished but {wav} was not produced (is ffmpeg on PATH?)")
     return wav
+
+
+def _is_16k_mono_wav(path: Path) -> bool:
+    if path.suffix.lower() != ".wav":
+        return False
+    try:
+        import soundfile as sf
+        info = sf.info(str(path))
+        return info.samplerate == SAMPLE_RATE and info.channels == 1
+    except Exception:
+        return False
+
+
+def prepare_local_audio(src: Path, output_dir: Path, max_minutes: int | None) -> Path:
+    """Return a 16 kHz mono WAV for `src` (any audio/video ffmpeg can read), clipped if asked.
+
+    Turn slicing seeks by sample offset at SAMPLE_RATE, so every input is normalised first.
+    """
+    if not max_minutes and _is_16k_mono_wav(src):
+        return src
+
+    dst = output_dir / f"{src.stem}{duration_suffix(max_minutes) or '_16k'}.wav"
+    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+        log(f"Reusing prepared audio {dst}")
+        return dst
+
+    cmd = [require_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(src)]
+    if max_minutes:
+        cmd += ["-t", str(max_minutes * 60)]
+    cmd += ["-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), str(dst)]
+    log(f"Converting audio{f' (first {max_minutes} min)' if max_minutes else ''} to 16 kHz mono -> {dst}")
+    subprocess.run(cmd, check=True)
+    return dst
 
 
 # --------------------------------------------------------------- diarization
 def diarize(wav: Path, device) -> list[dict]:
     from pyannote.audio import Pipeline
+    import torch
 
     token = os.environ.get("HF_TOKEN")
     if not token:
-        sys.exit("HF_TOKEN is not set (env var or .env). It is required for pyannote models.")
+        raise PipelineError("HF_TOKEN is not set (env var or .env). It is required for pyannote models.")
 
     log(f"Loading {DIARIZATION_MODEL} on {device}")
     try:
@@ -114,17 +180,27 @@ def diarize(wav: Path, device) -> list[dict]:
     except TypeError:  # pyannote.audio < 4 uses the older kwarg
         pipeline = Pipeline.from_pretrained(DIARIZATION_MODEL, use_auth_token=token)
     if pipeline is None:
-        sys.exit(f"Could not load {DIARIZATION_MODEL}; accept its licence on Hugging Face first.")
+        raise PipelineError(f"Could not load {DIARIZATION_MODEL}; accept its licence on Hugging Face first.")
     pipeline.to(device)
+
+    # Pre-load the waveform so pyannote does not need its own (torchcodec) decoder
+    try:
+        import torchaudio
+        waveform, sr = torchaudio.load(str(wav))
+    except Exception:
+        import soundfile as sf
+        data, sr = sf.read(str(wav), dtype="float32", always_2d=True)
+        waveform = torch.from_numpy(data.T)
+    audio_input = {"waveform": waveform, "sample_rate": sr}
 
     log("Diarizing (this is the slow step for long sittings)…")
     t0 = time.time()
     try:
         from pyannote.audio.pipelines.utils.hook import ProgressHook
         with ProgressHook() as hook:
-            output = pipeline(str(wav), hook=hook)
+            output = pipeline(audio_input, hook=hook)
     except ImportError:
-        output = pipeline(str(wav))
+        output = pipeline(audio_input)
     annotation = getattr(output, "speaker_diarization", output)  # pyannote 4 wraps the Annotation
 
     segments = [
@@ -157,7 +233,7 @@ def load_slice(wav: Path, start: float, end: float):
         if sr != SAMPLE_RATE:
             waveform = torchaudio.functional.resample(waveform, sr, SAMPLE_RATE)
         return waveform.mean(dim=0).numpy().astype("float32")
-    except (ImportError, RuntimeError):  # torchaudio backend unavailable -> seek with soundfile
+    except Exception:  # torchaudio missing / no backend -> seek with soundfile
         import soundfile as sf
         audio, _ = sf.read(str(wav), start=offset, frames=frames, dtype="float32", always_2d=True)
         return audio.mean(axis=1)
@@ -211,51 +287,56 @@ def transcribe_turns(wav: Path, turns: list[dict], cuda: bool, out_path: Path, p
 
 
 # ----------------------------------------------------------------------- main
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Download, diarize and transcribe a Dewan Rakyat sitting.")
-    p.add_argument("--url", default=None, help="YouTube URL of the sitting")
-    p.add_argument("--audio", default=None, help="Path to an existing local WAV audio file")
-    p.add_argument("--max-duration", type=int, default=None, metavar="MINUTES",
-                   help="Only process the first N minutes (when using --url)")
-    p.add_argument("--output-dir", default="data", help="Folder for the WAV and transcript JSON")
-    args = p.parse_args()
-    if not args.url and not args.audio:
-        p.error("You must provide either --url or --audio")
-    return args
+def resolve_cuda(device: str) -> bool:
+    try:
+        import torch
+    except ImportError as e:
+        raise PipelineError("ML dependencies are missing — run `pip install -r requirements.txt`.") from e
+    available = torch.cuda.is_available()
+    if device == "cuda" and not available:
+        raise PipelineError("--device cuda was requested but torch cannot see a CUDA GPU.")
+    return device != "cpu" and available
 
 
-def main() -> None:
-    args = parse_args()
+def run(
+    url: str | None = None,
+    audio: str | Path | None = None,
+    max_duration: int | None = None,
+    output_dir: str | Path = "data",
+    device: str = "auto",
+) -> Path:
+    """Run the full pipeline and return the path of the transcript JSON."""
+    if bool(url) == bool(audio):
+        raise PipelineError("Provide exactly one of `url` or `audio`.")
     try:
         from dotenv import load_dotenv
-        load_dotenv()
+        load_dotenv(Path(__file__).with_name(".env"))
     except ImportError:
         pass
 
-    output_dir = Path(args.output_dir)
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    cuda = resolve_cuda(device)  # fail fast before any download
+    log(f"Execution device: {'cuda (float16)' if cuda else 'cpu (int8)'}")
 
-    if args.audio:
-        wav = Path(args.audio)
-        if not wav.exists():
-            sys.exit(f"Audio file not found: {wav}")
-        stem = wav.stem
-        title = stem.replace("_", " ").title()
-        video_id = stem
-        source_url = "local"
-        log(f"Using local audio file: {wav}")
+    if audio:
+        src = Path(audio)
+        if not src.exists():
+            raise PipelineError(f"Audio file not found: {src}")
+        log(f"Using local file: {src}")
+        wav = prepare_local_audio(src, output_dir, max_duration)
+        stem, title, video_id, source_url = wav.stem, src.stem.replace("_", " ").title(), src.stem, "local"
     else:
-        video_id, title = fetch_metadata(args.url)
-        stem = f"{sanitize(title)}_{video_id}"
-        source_url = args.url
+        info = fetch_video_info(url)
+        video_id, title = info["id"], info["title"]
+        stem = f"{sanitize(title)}_{video_id}{duration_suffix(max_duration)}"
+        source_url = url
         log(f"Video: {title} [{video_id}]")
-        wav = download_audio(args.url, stem, output_dir, args.max_duration)
+        wav = download_audio(url, stem, output_dir, max_duration)
 
     out_path = output_dir / f"{stem}_transcript.json"
 
     import torch
-    cuda = torch.cuda.is_available()
-
     turns = stitch_turns(diarize(wav, torch.device("cuda" if cuda else "cpu")))
     speakers = sorted({t["speaker"] for t in turns})
     log(f"Stitched into {len(turns)} turns across {len(speakers)} speakers (gap <= {MERGE_GAP_S}s)")
@@ -267,6 +348,8 @@ def main() -> None:
         "video_id": video_id,
         "source_url": source_url,
         "audio_file": wav.name,
+        "max_duration_min": max_duration,
+        "device": "cuda" if cuda else "cpu",
         "status": "in_progress",
         "speakers_detected": [],
         "turns": [],
@@ -280,7 +363,44 @@ def main() -> None:
     payload["status"] = "complete"
     save_json(out_path, payload)
     log(f"Done: {len(payload['turns'])} turns -> {out_path}")
+    return out_path
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Download, diarize and transcribe a Dewan Rakyat sitting.")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--url", help="YouTube URL of the sitting")
+    src.add_argument("--audio", help="Path to a local audio/video file (.wav, .mp3, .mp4, .m4a, …)")
+    p.add_argument("--max-duration", type=int, default=None, metavar="MINUTES",
+                   help="Only process the first N minutes (recommended: 2 for CPU demos)")
+    p.add_argument("--output-dir", default="data", help="Folder for the WAV and transcript JSON (default: data)")
+    p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto",
+                   help="auto = CUDA if available; cpu forces int8 CPU inference")
+    args = p.parse_args(argv)
+    if args.max_duration is not None and args.max_duration <= 0:
+        p.error("--max-duration must be a positive number of minutes")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Windows consoles/pipes default to cp1252; Malay text and "…" must not crash logging
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+    args = parse_args(argv)
+    try:
+        out_path = run(url=args.url, audio=args.audio, max_duration=args.max_duration,
+                       output_dir=args.output_dir, device=args.device)
+    except PipelineError as e:
+        log(f"ERROR: {e}")
+        return 1
+    except subprocess.CalledProcessError as e:
+        log(f"ERROR: external command failed (exit {e.returncode}): {' '.join(map(str, e.cmd[:3]))} …")
+        return 1
+    print(f"{OUTPUT_MARKER}{out_path.resolve()}", flush=True)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -1,0 +1,17 @@
+{
+  "audio_file": "parlimen_test.wav",
+  "speakers_detected": [
+    "Unknown MP (SPEAKER_02)",
+    "YB Sri Aman (Dato' Sri Doris Sophia Brodi)",
+    "Perdana Menteri (Dato' Seri Anwar Ibrahim)"
+  ],
+  "turns": [
+    {
+      "speaker": "Unknown MP (SPEAKER_02)",
+      "start": 1.87,
+      "end": 12.79,
+      "timestamp": "00:01.87 - 00:12.79",
+      "text": "Bismillahirrahmanirrahim. Sebelum saya memulakan sesi pertanyaan jawab tulisan Perdana Menteri."
+    }
+  ]
+}
